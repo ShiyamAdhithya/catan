@@ -1,0 +1,16 @@
+{
+  "name": "@catan/vitest-config",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Shared Vitest configurations for the Catan workspace.",
+  "exports": {
+    "./base": "./base.js",
+    "./node": "./node.js",
+    "./react": "./react.js"
+  },
+  "peerDependencies": {
+    "vitest": "catalog:",
+    "vite": "catalog:"
+  }
+}

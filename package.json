@@ -1,13 +1,16 @@
 {
   "name": "catan",
   "version": "1.0.0",
+  "private": true,
   "description": "",
+  "type": "module",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": [],
-  "author": "",
+  "author": "Shiyam Adhithya V P (shiyamadhithya@gmail.com)",
   "license": "ISC",
-  "packageManager": "pnpm@10.13.1"
+  "packageManager": "pnpm@10.13.1",
+  "engines": {
+    "node": "22.12.0"
+  }
 }

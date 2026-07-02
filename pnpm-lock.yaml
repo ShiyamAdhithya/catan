@@ -1,0 +1,23 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .: {}
+
+  apps/desktop: {}
+
+  packages/game-engine: {}
+
+  packages/game-ui: {}
+
+  packages/networking: {}
+
+  packages/protocol: {}
+
+  packages/ui: {}
+
+  packages/utils: {}

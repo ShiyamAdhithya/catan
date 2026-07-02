@@ -11,7 +11,7 @@ export default defineConfig([
     ]
   },
   js.configs.recommended,
-  ...tseslint.configs.recommended,
+  tseslint.configs.recommended,
   {
     rules: {
       "prefer-const": "error",

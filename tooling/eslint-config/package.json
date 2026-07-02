@@ -1,0 +1,20 @@
+{
+  "name": "@catan/eslint-config",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Shared ESLint configurations for the Catan workspace.",
+  "type": "module",
+  "dependencies": {
+    "eslint": "catalog:",
+    "@eslint/js": "catalog:",
+    "typescript-eslint": "catalog:"
+  },
+  "peerDependencies": {
+    "typescript": "catalog:"
+  },
+  "exports": {
+    "./base": "./base.js",
+    "./library": "./library.js",
+    "./react": "./react.js"
+  }
+}

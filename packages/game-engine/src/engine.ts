@@ -20,6 +20,7 @@ import { ok, type Result } from './result.js';
 import { addResources, advanceAfterSetupRoad, subtractResources } from './helpers.js';
 import { recalculateLongestRoad } from './rules/longestRoad.js';
 import { recalculateLargestArmy } from './rules/largestArmy.js';
+import { checkWinCondition, recalculateVictoryPoints } from './rules/victory.js';
 
 export interface CommandHandler<C extends Command> {
   validate(state: GameState, command: C): Result<true>;
@@ -367,10 +368,16 @@ export function applyCommand(
   const largestArmyResult = recalculateLargestArmy(nextState);
   nextState = largestArmyResult.state;
 
+  nextState = recalculateVictoryPoints(nextState);
+
+  const winResult = checkWinCondition(nextState);
+  nextState = winResult.state;
+
   const allEvents = [
     ...commandEvents,
     ...(longestRoadResult.event ? [longestRoadResult.event] : []),
     ...(largestArmyResult.event ? [largestArmyResult.event] : []),
+    ...(winResult.event ? [winResult.event] : []),
   ];
 
   return ok({ state: nextState, events: allEvents });

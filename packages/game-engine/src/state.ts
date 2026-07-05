@@ -10,7 +10,7 @@ const STARTING_BANK_RESOURCES: Record<ResourceType, number> = {
   ORE: 19,
 };
 
-const DEV_CARD_COUNTS: Record<DevCardType, number> = {
+export const DEV_CARD_COUNTS: Record<DevCardType, number> = {
   KNIGHT: 14,
   VICTORY_POINT: 5,
   ROAD_BUILDING: 2,

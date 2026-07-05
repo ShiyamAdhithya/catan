@@ -1,5 +1,20 @@
 import type { Board, Edge, GameState, PlayerId, PlayerState, ResourceType, Vertex } from './types.js';
-import type { Command } from './commands.js';
+import type {
+  BuildCityCommand,
+  BuildRoadCommand,
+  BuildSettlementCommand,
+  BuyDevelopmentCardCommand,
+  Command,
+  DiscardResourcesCommand,
+  EndTurnCommand,
+  MoveRobberCommand,
+  PlaceInitialRoadCommand,
+  PlaceInitialSettlementCommand,
+  PlayDevelopmentCardCommand,
+  RollDiceCommand,
+  StealResourceCommand,
+  TradeWithBankCommand,
+} from './commands.js';
 import type { Event } from './events.js';
 import { ok, type Result } from './result.js';
 import { addResources, advanceAfterSetupRoad, subtractResources } from './helpers.js';
@@ -15,6 +30,49 @@ type HandlerRegistry = {
 
 const registry: HandlerRegistry = {};
 
+// Overloaded (not a single generic signature): a generic registerHandler<K>(type: K, handler: ...)
+// lets TypeScript infer K independently from each argument and widen it to a union across two
+// unrelated call sites, which — combined with bivariant method-parameter checking on
+// CommandHandler's validate/apply — silently accepts a handler registered under the wrong
+// command type with zero compile errors. One literal overload per command type closes that hole:
+// callers are checked against the exact matching signature, not a generic inference.
+export function registerHandler(
+  type: 'PlaceInitialSettlement',
+  handler: CommandHandler<PlaceInitialSettlementCommand>,
+): void;
+export function registerHandler(
+  type: 'PlaceInitialRoad',
+  handler: CommandHandler<PlaceInitialRoadCommand>,
+): void;
+export function registerHandler(type: 'RollDice', handler: CommandHandler<RollDiceCommand>): void;
+export function registerHandler(
+  type: 'DiscardResources',
+  handler: CommandHandler<DiscardResourcesCommand>,
+): void;
+export function registerHandler(type: 'MoveRobber', handler: CommandHandler<MoveRobberCommand>): void;
+export function registerHandler(
+  type: 'StealResource',
+  handler: CommandHandler<StealResourceCommand>,
+): void;
+export function registerHandler(type: 'BuildRoad', handler: CommandHandler<BuildRoadCommand>): void;
+export function registerHandler(
+  type: 'BuildSettlement',
+  handler: CommandHandler<BuildSettlementCommand>,
+): void;
+export function registerHandler(type: 'BuildCity', handler: CommandHandler<BuildCityCommand>): void;
+export function registerHandler(
+  type: 'BuyDevelopmentCard',
+  handler: CommandHandler<BuyDevelopmentCardCommand>,
+): void;
+export function registerHandler(
+  type: 'PlayDevelopmentCard',
+  handler: CommandHandler<PlayDevelopmentCardCommand>,
+): void;
+export function registerHandler(
+  type: 'TradeWithBank',
+  handler: CommandHandler<TradeWithBankCommand>,
+): void;
+export function registerHandler(type: 'EndTurn', handler: CommandHandler<EndTurnCommand>): void;
 export function registerHandler<K extends Command['type']>(
   type: K,
   handler: CommandHandler<Extract<Command, { type: K }>>,

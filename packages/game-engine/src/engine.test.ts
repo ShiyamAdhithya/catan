@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { applyCommand, reduceEvent, registerHandler } from './engine.js';
+import { applyCommand, reduceEvent, registerHandler, type CommandHandler } from './engine.js';
 import { createInitialGameState } from './state.js';
 import { err, ok } from './result.js';
 import type { GameState } from './types.js';
-import type { Command } from './commands.js';
+import type { DiscardResourcesCommand } from './commands.js';
 
 const identityShuffle = <T,>(items: T[]): T[] => [...items];
 
@@ -18,13 +18,18 @@ describe('applyCommand dispatch', () => {
   }
 
   beforeEach(() => {
-    registerHandler('Ping' as Command['type'], {
+    // `registerHandler` is now overloaded with one literal signature per real command
+    // type (to close a type-safety hole — see engine.ts), so this fixture — which
+    // registers a fake 'Ping' type that isn't part of the real Command union — can no
+    // longer go through the public overloads. Cast the function reference itself to
+    // bypass overload resolution for this one intentionally-out-of-band test call.
+    (registerHandler as (type: string, handler: unknown) => void)('Ping', {
       validate: (state: GameState, command: PingCommand) =>
         command.playerId === state.currentPlayerId
           ? ok(true)
           : err({ type: 'NotYourTurn', currentPlayerId: state.currentPlayerId }),
       apply: () => [],
-    } as never);
+    });
   });
 
   it('short-circuits on validation failure without folding any events', () => {
@@ -44,6 +49,27 @@ describe('applyCommand dispatch', () => {
       expect(result.value.events).toEqual([]);
       expect(result.value.state).toBe(state); // no events, no change
     }
+  });
+});
+
+describe('registerHandler type safety', () => {
+  it('rejects a handler registered under the wrong command type at compile time', () => {
+    // Regression for a reviewed type-safety hole: a single generic
+    // `registerHandler<K>(type: K, handler: CommandHandler<Extract<Command, {type: K}>>)`
+    // let TypeScript widen K across two unrelated call-site arguments and, combined with
+    // bivariant checking of CommandHandler's method-shaped validate/apply parameters,
+    // accept a handler built for one command type registered under a completely
+    // different command type's literal — with zero compile errors. Overloading
+    // registerHandler with one literal signature per command type closes that hole.
+    // This test carries no runtime assertions; its only job is to fail `tsc --noEmit`
+    // (via an unused `@ts-expect-error`) if the hole is ever reopened.
+    const mismatchedHandler: CommandHandler<DiscardResourcesCommand> = {
+      validate: () => ok(true),
+      apply: () => [],
+    };
+    // @ts-expect-error -- 'BuildCity' requires CommandHandler<BuildCityCommand>, not CommandHandler<DiscardResourcesCommand>
+    registerHandler('BuildCity', mismatchedHandler);
+    expect(true).toBe(true);
   });
 });
 

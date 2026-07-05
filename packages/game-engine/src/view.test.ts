@@ -7,19 +7,27 @@ const identityShuffle = <T,>(items: T[]): T[] => [...items];
 
 function stateWithHands(): GameState {
   const base = createInitialGameState(['p1', 'p2'], identityShuffle);
+  // Deal p1/p2's hand cards from the actual top of the bank deck, and remove
+  // them from state.bank.devCards, so the fixture is internally consistent
+  // (a card can't simultaneously be in a player's hand and still "in the
+  // bank") — this keeps bankDevCardCount's plain state.bank.devCards.length
+  // read correct for this test, matching what applyCommand would actually
+  // produce via BuyDevelopmentCard.
+  const [p1Card, p2Card, ...remainingDevCards] = base.bank.devCards;
   return {
     ...base,
+    bank: { ...base.bank, devCards: remainingDevCards },
     players: {
       p1: {
         ...base.players.p1,
         resources: { WOOD: 2, BRICK: 1, SHEEP: 0, WHEAT: 0, ORE: 0 },
-        devCards: [{ id: 'v1', type: 'VICTORY_POINT' }],
+        devCards: [{ ...p1Card, type: 'VICTORY_POINT' }],
         victoryPoints: 3,
       },
       p2: {
         ...base.players.p2,
         resources: { WOOD: 0, BRICK: 0, SHEEP: 3, WHEAT: 1, ORE: 0 },
-        devCards: [{ id: 'k1', type: 'KNIGHT' }],
+        devCards: [{ ...p2Card, type: 'KNIGHT' }],
         victoryPoints: 2,
       },
     },
@@ -30,7 +38,10 @@ describe('getStateView', () => {
   it('shows the viewing player their own exact hand', () => {
     const view = getStateView(stateWithHands(), 'p1');
     expect(view.players.p1.resources).toEqual({ WOOD: 2, BRICK: 1, SHEEP: 0, WHEAT: 0, ORE: 0 });
-    expect(view.players.p1.devCards).toEqual([{ id: 'v1', type: 'VICTORY_POINT' }]);
+    // The card's id comes from whatever the bank deck actually deals (stateWithHands takes it
+    // from base.bank.devCards rather than a hardcoded id), so only its type is asserted here.
+    expect(view.players.p1.devCards).toHaveLength(1);
+    expect(view.players.p1.devCards?.[0]?.type).toBe('VICTORY_POINT');
     expect(view.players.p1.resourceCount).toBe(3);
     expect(view.players.p1.devCardCount).toBe(1);
   });

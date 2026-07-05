@@ -35,16 +35,31 @@ export const buyDevelopmentCardHandler: CommandHandler<BuyDevelopmentCardCommand
   },
 };
 
-function isConnectedForRoadBuilding(
+// A pair of Road Building edges is legal only if there is no way to place
+// them that leaves either one floating: if they share a vertex, one may
+// extend from the other as a chain, so only one needs to already touch the
+// player's network; if they don't share a vertex, neither can "borrow"
+// connectivity from the other, so both must independently touch the network.
+// (An earlier version of this check treated "A connects OR they share a
+// vertex" as sufficient regardless of B's own connectivity, which let a
+// player anchor one edge and place the other anywhere on the board — closed
+// here by requiring both when the pair isn't a chain.)
+function isRoadBuildingPairLegal(
   board: Board,
-  edgeId: string,
+  edgeAId: string,
+  edgeBId: string,
   playerId: string,
-  otherEdgeId: string,
 ): boolean {
-  if (isEdgeConnectedToPlayerNetwork(board, edgeId, playerId)) return true;
-  const edge = board.edges.find((e) => e.id === edgeId)!;
-  const other = board.edges.find((e) => e.id === otherEdgeId)!;
-  return edge.vertexIds.some((v) => other.vertexIds.includes(v));
+  const edgeA = board.edges.find((e) => e.id === edgeAId)!;
+  const edgeB = board.edges.find((e) => e.id === edgeBId)!;
+  const shareVertex = edgeA.vertexIds.some((v) => edgeB.vertexIds.includes(v));
+  const aConnected = isEdgeConnectedToPlayerNetwork(board, edgeAId, playerId);
+  const bConnected = isEdgeConnectedToPlayerNetwork(board, edgeBId, playerId);
+
+  if (shareVertex) {
+    return aConnected || bConnected;
+  }
+  return aConnected && bConnected;
 }
 
 export const playDevelopmentCardHandler: CommandHandler<PlayDevelopmentCardCommand> = {
@@ -85,11 +100,11 @@ export const playDevelopmentCardHandler: CommandHandler<PlayDevelopmentCardComma
       if (player.piecesRemaining.roads < 2) {
         return err({ type: 'NoPiecesRemaining', piece: 'road' });
       }
-      if (
-        !isConnectedForRoadBuilding(state.board, edgeAId, command.playerId, edgeBId) &&
-        !isConnectedForRoadBuilding(state.board, edgeBId, command.playerId, edgeAId)
-      ) {
-        return err({ type: 'IllegalPlacement', reason: 'Neither edge connects to your road network' });
+      if (!isRoadBuildingPairLegal(state.board, edgeAId, edgeBId, command.playerId)) {
+        return err({
+          type: 'IllegalPlacement',
+          reason: 'Road pair must connect to your network, either directly or as a connected chain',
+        });
       }
     }
 

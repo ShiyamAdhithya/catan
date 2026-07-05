@@ -121,6 +121,103 @@ describe('playDevelopmentCardHandler', () => {
     ]);
   });
 
+  it('accepts a Road Building pair that chains outward from the network through a shared vertex', () => {
+    const base = withDevCards(baseState(), 'p1', [{ id: 'r1', type: 'ROAD_BUILDING' }]);
+    // Find a settlement vertex V, an edge A touching V (connected), and an edge C that
+    // shares A's *other* vertex W but does not itself touch V — a legitimate outward
+    // chain where only edge A is directly connected to the network.
+    let found: { vertexId: string; edgeA: (typeof base.board.edges)[number]; edgeC: (typeof base.board.edges)[number] } | undefined;
+    for (const vertex of base.board.vertices) {
+      const edgeA = base.board.edges.find((e) => e.vertexIds.includes(vertex.id));
+      if (!edgeA) continue;
+      const otherVertexId = edgeA.vertexIds.find((v) => v !== vertex.id)!;
+      const edgeC = base.board.edges.find(
+        (e) => e.id !== edgeA.id && e.vertexIds.includes(otherVertexId) && !e.vertexIds.includes(vertex.id),
+      );
+      if (edgeC) {
+        found = { vertexId: vertex.id, edgeA, edgeC };
+        break;
+      }
+    }
+    expect(found).toBeDefined();
+    const { vertexId, edgeA, edgeC } = found!;
+    const withSettlement = {
+      ...base,
+      board: {
+        ...base.board,
+        vertices: base.board.vertices.map((v) =>
+          v.id === vertexId ? { ...v, building: { type: 'SETTLEMENT' as const, playerId: 'p1' } } : v,
+        ),
+      },
+    };
+    const command = {
+      type: 'PlayDevelopmentCard' as const,
+      playerId: 'p1',
+      cardId: 'r1',
+      roadBuilding: { edgeIds: [edgeA.id, edgeC.id] as [string, string] },
+    };
+    expect(playDevelopmentCardHandler.validate(withSettlement, command).ok).toBe(true);
+  });
+
+  it('rejects a Road Building pair of two disjoint edges neither of which touches the network', () => {
+    const base = withDevCards(baseState(), 'p1', [{ id: 'r1', type: 'ROAD_BUILDING' }]);
+    let found: { edgeX: (typeof base.board.edges)[number]; edgeY: (typeof base.board.edges)[number] } | undefined;
+    for (const edgeX of base.board.edges) {
+      const edgeY = base.board.edges.find(
+        (e) => e.id !== edgeX.id && !e.vertexIds.some((v) => edgeX.vertexIds.includes(v)),
+      );
+      if (edgeY) {
+        found = { edgeX, edgeY };
+        break;
+      }
+    }
+    expect(found).toBeDefined();
+    const { edgeX, edgeY } = found!;
+    const command = {
+      type: 'PlayDevelopmentCard' as const,
+      playerId: 'p1',
+      cardId: 'r1',
+      roadBuilding: { edgeIds: [edgeX.id, edgeY.id] as [string, string] },
+    };
+    expect(playDevelopmentCardHandler.validate(base, command).ok).toBe(false);
+  });
+
+  it('rejects a Road Building pair with one edge anchored to the network and the other floating disjoint', () => {
+    const base = withDevCards(baseState(), 'p1', [{ id: 'r1', type: 'ROAD_BUILDING' }]);
+    // Reproduces the reviewer's counter-example: settlement at V with connected edge A,
+    // plus an unrelated edge F sharing no vertex with A and not itself touching V.
+    let found: { vertexId: string; edgeA: (typeof base.board.edges)[number]; edgeF: (typeof base.board.edges)[number] } | undefined;
+    for (const vertex of base.board.vertices) {
+      const edgeA = base.board.edges.find((e) => e.vertexIds.includes(vertex.id));
+      if (!edgeA) continue;
+      const edgeF = base.board.edges.find(
+        (e) => e.id !== edgeA.id && !e.vertexIds.includes(vertex.id) && !e.vertexIds.some((v) => edgeA.vertexIds.includes(v)),
+      );
+      if (edgeF) {
+        found = { vertexId: vertex.id, edgeA, edgeF };
+        break;
+      }
+    }
+    expect(found).toBeDefined();
+    const { vertexId, edgeA, edgeF } = found!;
+    const withSettlement = {
+      ...base,
+      board: {
+        ...base.board,
+        vertices: base.board.vertices.map((v) =>
+          v.id === vertexId ? { ...v, building: { type: 'SETTLEMENT' as const, playerId: 'p1' } } : v,
+        ),
+      },
+    };
+    const command = {
+      type: 'PlayDevelopmentCard' as const,
+      playerId: 'p1',
+      cardId: 'r1',
+      roadBuilding: { edgeIds: [edgeA.id, edgeF.id] as [string, string] },
+    };
+    expect(playDevelopmentCardHandler.validate(withSettlement, command).ok).toBe(false);
+  });
+
   it('plays Year of Plenty and grants the two chosen resources from the bank', () => {
     const state = withDevCards(baseState(), 'p1', [{ id: 'y1', type: 'YEAR_OF_PLENTY' }]);
     const command = {

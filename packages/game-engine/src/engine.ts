@@ -18,6 +18,7 @@ import type {
 import type { Event } from './events.js';
 import { ok, type Result } from './result.js';
 import { addResources, advanceAfterSetupRoad, subtractResources } from './helpers.js';
+import { recalculateLongestRoad } from './rules/longestRoad.js';
 
 export interface CommandHandler<C extends Command> {
   validate(state: GameState, command: C): Result<true>;
@@ -356,8 +357,13 @@ export function applyCommand(
   const validation = handler.validate(state, command);
   if (!validation.ok) return validation;
 
-  const events = handler.apply(state, command);
-  const nextState = events.reduce(reduceEvent, state);
+  const commandEvents = handler.apply(state, command);
+  let nextState = commandEvents.reduce(reduceEvent, state);
 
-  return ok({ state: nextState, events });
+  const longestRoadResult = recalculateLongestRoad(nextState);
+  nextState = longestRoadResult.state;
+
+  const allEvents = [...commandEvents, ...(longestRoadResult.event ? [longestRoadResult.event] : [])];
+
+  return ok({ state: nextState, events: allEvents });
 }

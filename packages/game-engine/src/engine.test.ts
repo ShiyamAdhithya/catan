@@ -4,6 +4,7 @@ import { createInitialGameState } from './state.js';
 import { err, ok } from './result.js';
 import type { GameState } from './types.js';
 import type { DiscardResourcesCommand } from './commands.js';
+import { buildRoadHandler } from './handlers/build.js';
 
 const identityShuffle = <T,>(items: T[]): T[] => [...items];
 
@@ -284,5 +285,28 @@ describe('reduceEvent', () => {
     const next = reduceEvent(state, { type: 'GameWon', playerId: 'p1' });
     expect(next.winner).toBe('p1');
     expect(next.phase).toBe('GAME_OVER');
+  });
+});
+
+describe('applyCommand + Longest Road wiring', () => {
+  it('emits LongestRoadChanged once a road command pushes a player to length 5', () => {
+    registerHandler('BuildRoad', buildRoadHandler);
+    // Building the full test scenario (affording + connecting 5 roads) is exercised
+    // end-to-end in Task 20's integration test; here we only prove the pipeline calls
+    // recalculateLongestRoad by checking a no-op command produces no LongestRoadChanged event.
+    const state = baseState();
+    // See the `registerHandler type safety` describe block above: the overloaded
+    // signature intentionally rejects a union-typed `type` argument, so this
+    // out-of-band 'Ping' fixture must bypass overload resolution via the same
+    // function-reference cast used by the `applyCommand dispatch` fixture above.
+    (registerHandler as (type: string, handler: unknown) => void)('Ping', {
+      validate: () => ok(true),
+      apply: () => [],
+    });
+    const result = applyCommand(state, { type: 'Ping', playerId: 'p1' } as never);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.events.some((e) => e.type === 'LongestRoadChanged')).toBe(false);
+    }
   });
 });

@@ -12,7 +12,12 @@ Sole owner of Catan game state (ADR-0004). Validates Commands, emits Events, mut
 
 ## Public API
 
-See `src/index.ts`. Consumers must not use deep imports (`docs/standards/03-packages.md`).
+- `createInitialGameState(playerIds, shuffle?)` — start a new game.
+- `applyCommand(state, command)` — validate and apply a Command, returning `Result<{ state, events }>`.
+- `getStateView(state, viewingPlayerId)` — hidden-information-redacted view for `@catan/game-ui`. Debug/replay tooling should use raw `GameState` instead.
+- Types: `GameState`, `Command`, `Event`, `Result`, `RuleViolation`, `PlayerView`, board/domain types (`Board`, `Hex`, `Vertex`, `Edge`, `Port`, ...).
+
+See `src/index.ts` for the full exported surface. Consumers must not use deep imports.
 
 ## Dependencies
 

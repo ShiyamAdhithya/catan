@@ -1,5 +1,29 @@
 {
   "name": "@catan/game-engine",
   "private": true,
-  "version": "0.0.0"
+  "version": "0.0.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "format": "prettier --check ."
+  },
+  "devDependencies": {
+    "@catan/eslint-config": "workspace:*",
+    "@catan/prettier-config": "workspace:*",
+    "@catan/typescript": "workspace:*",
+    "@catan/vitest-config": "workspace:*",
+    "typescript": "catalog:",
+    "eslint": "catalog:",
+    "@eslint/js": "catalog:",
+    "typescript-eslint": "catalog:",
+    "prettier": "catalog:",
+    "vitest": "catalog:",
+    "vite": "catalog:"
+  }
 }

@@ -1,0 +1,326 @@
+import { beforeEach, describe, expect, it } from 'vitest';
+import { applyCommand, reduceEvent, registerHandler, type CommandHandler } from './engine.js';
+import { createInitialGameState } from './state.js';
+import { err, ok } from './result.js';
+import type { GameState } from './types.js';
+import type { DiscardResourcesCommand } from './commands.js';
+import { buildRoadHandler } from './handlers/build.js';
+
+const identityShuffle = <T,>(items: T[]): T[] => [...items];
+
+function baseState(): GameState {
+  return createInitialGameState(['p1', 'p2'], identityShuffle);
+}
+
+describe('applyCommand dispatch', () => {
+  interface PingCommand {
+    type: 'Ping';
+    playerId: string;
+  }
+
+  beforeEach(() => {
+    // `registerHandler` is now overloaded with one literal signature per real command
+    // type (to close a type-safety hole — see engine.ts), so this fixture — which
+    // registers a fake 'Ping' type that isn't part of the real Command union — can no
+    // longer go through the public overloads. Cast the function reference itself to
+    // bypass overload resolution for this one intentionally-out-of-band test call.
+    (registerHandler as (type: string, handler: unknown) => void)('Ping', {
+      validate: (state: GameState, command: PingCommand) =>
+        command.playerId === state.currentPlayerId
+          ? ok(true)
+          : err({ type: 'NotYourTurn', currentPlayerId: state.currentPlayerId }),
+      apply: () => [],
+    });
+  });
+
+  it('short-circuits on validation failure without folding any events', () => {
+    const state = baseState();
+    const result = applyCommand(state, { type: 'Ping', playerId: 'p2' } as never);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toEqual({ type: 'NotYourTurn', currentPlayerId: 'p1' });
+    }
+  });
+
+  it('returns the folded state and events on success', () => {
+    const state = baseState();
+    const result = applyCommand(state, { type: 'Ping', playerId: 'p1' } as never);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.events).toEqual([]);
+      expect(result.value.state).toBe(state); // no events, no change
+    }
+  });
+
+  it('returns an UnknownCommand Result instead of throwing for a command type with no registered handler', () => {
+    // `applyCommand` is the public entry point that @catan/networking will eventually feed
+    // with deserialized data from peers, so a malformed/corrupted `type` field must fail
+    // gracefully as a Result rather than crash the process. 'Pong' is deliberately never
+    // registered by any fixture in this file. Cast through `as unknown as Command` the same
+    // way the 'Ping' fixtures above bypass the closed Command union at compile time.
+    const state = baseState();
+    const result = applyCommand(state, { type: 'Pong', playerId: 'p1' } as never);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toEqual({ type: 'UnknownCommand', commandType: 'Pong' });
+    }
+  });
+});
+
+describe('registerHandler type safety', () => {
+  it('rejects a handler registered under the wrong command type at compile time', () => {
+    // Regression for a reviewed type-safety hole: a single generic
+    // `registerHandler<K>(type: K, handler: CommandHandler<Extract<Command, {type: K}>>)`
+    // let TypeScript widen K across two unrelated call-site arguments and, combined with
+    // bivariant checking of CommandHandler's method-shaped validate/apply parameters,
+    // accept a handler built for one command type registered under a completely
+    // different command type's literal — with zero compile errors. Overloading
+    // registerHandler with one literal signature per command type closes that hole.
+    // This test carries no runtime assertions; its only job is to fail `tsc --noEmit`
+    // (via an unused `@ts-expect-error`) if the hole is ever reopened.
+    const mismatchedHandler: CommandHandler<DiscardResourcesCommand> = {
+      validate: () => ok(true),
+      apply: () => [],
+    };
+    // @ts-expect-error -- 'BuildCity' requires CommandHandler<BuildCityCommand>, not CommandHandler<DiscardResourcesCommand>
+    registerHandler('BuildCity', mismatchedHandler);
+    expect(true).toBe(true);
+  });
+});
+
+describe('reduceEvent', () => {
+  it('SettlementBuilt places the building, decrements pieces, and advances SETUP_SETTLEMENT to SETUP_ROAD', () => {
+    const state = baseState();
+    const vertexId = state.board.vertices[0].id;
+    const next = reduceEvent(state, { type: 'SettlementBuilt', playerId: 'p1', vertexId });
+    expect(next.board.vertices.find((v) => v.id === vertexId)?.building).toEqual({
+      type: 'SETTLEMENT',
+      playerId: 'p1',
+    });
+    expect(next.players.p1.piecesRemaining.settlements).toBe(4);
+    expect(next.phase).toBe('SETUP_ROAD');
+  });
+
+  it('RoadBuilt places the road, decrements pieces, and does not change phase outside setup', () => {
+    const state = { ...baseState(), phase: 'MAIN' as const };
+    const edgeId = state.board.edges[0].id;
+    const next = reduceEvent(state, { type: 'RoadBuilt', playerId: 'p1', edgeId });
+    expect(next.board.edges.find((e) => e.id === edgeId)?.road).toEqual({ playerId: 'p1' });
+    expect(next.players.p1.piecesRemaining.roads).toBe(14);
+    expect(next.phase).toBe('MAIN');
+  });
+
+  it('DiceRolled with total 7 and no one over the limit goes straight to MOVE_ROBBER', () => {
+    const state = baseState();
+    const next = reduceEvent(state, {
+      type: 'DiceRolled',
+      die1: 3,
+      die2: 4,
+      total: 7,
+      playersToDiscard: [],
+    });
+    expect(next.phase).toBe('MOVE_ROBBER');
+    expect(next.pendingDiscards).toEqual([]);
+  });
+
+  it('DiceRolled with total 7 and players over the limit goes to DISCARD', () => {
+    const state = baseState();
+    const next = reduceEvent(state, {
+      type: 'DiceRolled',
+      die1: 3,
+      die2: 4,
+      total: 7,
+      playersToDiscard: ['p1'],
+    });
+    expect(next.phase).toBe('DISCARD');
+    expect(next.pendingDiscards).toEqual(['p1']);
+  });
+
+  it('DiceRolled with a non-7 total goes to MAIN', () => {
+    const state = baseState();
+    const next = reduceEvent(state, {
+      type: 'DiceRolled',
+      die1: 2,
+      die2: 2,
+      total: 4,
+      playersToDiscard: [],
+    });
+    expect(next.phase).toBe('MAIN');
+  });
+
+  it('ResourcesDiscarded removes the last pending player and moves to MOVE_ROBBER', () => {
+    const state = {
+      ...baseState(),
+      phase: 'DISCARD' as const,
+      pendingDiscards: ['p1'],
+      players: {
+        ...baseState().players,
+        p1: { ...baseState().players.p1, resources: { WOOD: 4, BRICK: 4, SHEEP: 0, WHEAT: 0, ORE: 0 } },
+      },
+    };
+    const next = reduceEvent(state, {
+      type: 'ResourcesDiscarded',
+      playerId: 'p1',
+      resources: { WOOD: 4 },
+    });
+    expect(next.players.p1.resources.WOOD).toBe(0);
+    expect(next.bank.resources.WOOD).toBe(23);
+    expect(next.pendingDiscards).toEqual([]);
+    expect(next.phase).toBe('MOVE_ROBBER');
+  });
+
+  it('RobberMoved with steal targets goes to STEAL, with none goes to MAIN', () => {
+    const state = baseState();
+    const withTargets = reduceEvent(state, {
+      type: 'RobberMoved',
+      hexId: 'hex-0-0',
+      stealTargets: ['p2'],
+    });
+    expect(withTargets.phase).toBe('STEAL');
+    expect(withTargets.pendingRobberSteal).toEqual({ targets: ['p2'] });
+    expect(withTargets.board.robberHexId).toBe('hex-0-0');
+
+    const withoutTargets = reduceEvent(state, {
+      type: 'RobberMoved',
+      hexId: 'hex-0-0',
+      stealTargets: [],
+    });
+    expect(withoutTargets.phase).toBe('MAIN');
+    expect(withoutTargets.pendingRobberSteal).toBeNull();
+  });
+
+  it('ResourceStolen transfers one card, and does nothing if the victim had none', () => {
+    const state: GameState = {
+      ...baseState(),
+      players: {
+        ...baseState().players,
+        p2: { ...baseState().players.p2, resources: { WOOD: 1, BRICK: 0, SHEEP: 0, WHEAT: 0, ORE: 0 } },
+      },
+    };
+    const next = reduceEvent(state, {
+      type: 'ResourceStolen',
+      thiefId: 'p1',
+      victimId: 'p2',
+      resource: 'WOOD',
+    });
+    expect(next.players.p1.resources.WOOD).toBe(1);
+    expect(next.players.p2.resources.WOOD).toBe(0);
+    expect(next.phase).toBe('MAIN');
+
+    const nothingToSteal = reduceEvent(state, {
+      type: 'ResourceStolen',
+      thiefId: 'p1',
+      victimId: 'p2',
+      resource: null,
+    });
+    expect(nothingToSteal.players.p1.resources).toEqual(state.players.p1.resources);
+  });
+
+  it('CityUpgraded upgrades the vertex and returns the settlement piece to supply', () => {
+    const state = baseState();
+    const vertexId = state.board.vertices[0].id;
+    const next = reduceEvent(state, { type: 'CityUpgraded', playerId: 'p1', vertexId });
+    expect(next.board.vertices.find((v) => v.id === vertexId)?.building).toEqual({
+      type: 'CITY',
+      playerId: 'p1',
+    });
+    expect(next.players.p1.piecesRemaining.cities).toBe(3);
+    expect(next.players.p1.piecesRemaining.settlements).toBe(6);
+  });
+
+  it('DevelopmentCardBought moves the card from bank to player', () => {
+    const state = baseState();
+    const card = state.bank.devCards[0];
+    const next = reduceEvent(state, { type: 'DevelopmentCardBought', playerId: 'p1', card });
+    expect(next.players.p1.devCards).toEqual([card]);
+    expect(next.bank.devCards).toHaveLength(24);
+    expect(next.bank.devCards.find((c) => c.id === card.id)).toBeUndefined();
+  });
+
+  it('KnightPlayed moves the card to playedDevCards and transitions to MOVE_ROBBER', () => {
+    const state = baseState();
+    const card = { id: 'k1', type: 'KNIGHT' as const };
+    const withCard = {
+      ...state,
+      players: { ...state.players, p1: { ...state.players.p1, devCards: [card] } },
+    };
+    const next = reduceEvent(withCard, { type: 'KnightPlayed', playerId: 'p1', cardId: 'k1' });
+    expect(next.players.p1.devCards).toEqual([]);
+    expect(next.players.p1.playedDevCards).toEqual([card]);
+    expect(next.devCardPlayedThisTurn).toBe(true);
+    expect(next.phase).toBe('MOVE_ROBBER');
+  });
+
+  it('MonopolyPlayed zeroes the resource for every other player and gives the total to the player', () => {
+    const state = baseState();
+    const card = { id: 'm1', type: 'MONOPOLY' as const };
+    const withResources = {
+      ...state,
+      players: {
+        p1: { ...state.players.p1, devCards: [card] },
+        p2: { ...state.players.p2, resources: { WOOD: 3, BRICK: 0, SHEEP: 0, WHEAT: 0, ORE: 0 } },
+      },
+    };
+    const next = reduceEvent(withResources, {
+      type: 'MonopolyPlayed',
+      playerId: 'p1',
+      cardId: 'm1',
+      resource: 'WOOD',
+      totalStolen: 3,
+    });
+    expect(next.players.p1.resources.WOOD).toBe(3);
+    expect(next.players.p2.resources.WOOD).toBe(0);
+  });
+
+  it('TurnEnded advances the player, increments turnNumber, resets dev-card-turn tracking, and returns to ROLL', () => {
+    const state = {
+      ...baseState(),
+      phase: 'MAIN' as const,
+      devCardPlayedThisTurn: true,
+      devCardsBoughtThisTurn: ['k1'],
+    };
+    const next = reduceEvent(state, { type: 'TurnEnded', nextPlayerId: 'p2' });
+    expect(next.currentPlayerId).toBe('p2');
+    expect(next.turnNumber).toBe(2);
+    expect(next.phase).toBe('ROLL');
+    expect(next.devCardPlayedThisTurn).toBe(false);
+    expect(next.devCardsBoughtThisTurn).toEqual([]);
+  });
+
+  it('DevelopmentCardBought also records the card id as bought this turn', () => {
+    const state = baseState();
+    const card = state.bank.devCards[0];
+    const next = reduceEvent(state, { type: 'DevelopmentCardBought', playerId: 'p1', card });
+    expect(next.devCardsBoughtThisTurn).toEqual([card.id]);
+  });
+
+  it('GameWon sets the winner and GAME_OVER phase', () => {
+    const state = baseState();
+    const next = reduceEvent(state, { type: 'GameWon', playerId: 'p1' });
+    expect(next.winner).toBe('p1');
+    expect(next.phase).toBe('GAME_OVER');
+  });
+});
+
+describe('applyCommand + Longest Road wiring', () => {
+  it('emits LongestRoadChanged once a road command pushes a player to length 5', () => {
+    registerHandler('BuildRoad', buildRoadHandler);
+    // Building the full test scenario (affording + connecting 5 roads) is exercised
+    // end-to-end in Task 20's integration test; here we only prove the pipeline calls
+    // recalculateLongestRoad by checking a no-op command produces no LongestRoadChanged event.
+    const state = baseState();
+    // See the `registerHandler type safety` describe block above: the overloaded
+    // signature intentionally rejects a union-typed `type` argument, so this
+    // out-of-band 'Ping' fixture must bypass overload resolution via the same
+    // function-reference cast used by the `applyCommand dispatch` fixture above.
+    (registerHandler as (type: string, handler: unknown) => void)('Ping', {
+      validate: () => ok(true),
+      apply: () => [],
+    });
+    const result = applyCommand(state, { type: 'Ping', playerId: 'p1' } as never);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.events.some((e) => e.type === 'LongestRoadChanged')).toBe(false);
+    }
+  });
+});

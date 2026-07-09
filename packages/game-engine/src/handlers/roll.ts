@@ -28,9 +28,13 @@ function computeRollProduction(
   }
 
   const totalsByResource: Partial<Record<ResourceType, number>> = {};
-  for (const playerDemand of Object.values(demand)) {
+  const demandersByResource: Partial<Record<ResourceType, Set<PlayerId>>> = {};
+  for (const [playerId, playerDemand] of Object.entries(demand)) {
     for (const [resource, amount] of Object.entries(playerDemand) as [ResourceType, number][]) {
       totalsByResource[resource] = (totalsByResource[resource] ?? 0) + amount;
+      const demanders = demandersByResource[resource] ?? new Set<PlayerId>();
+      demanders.add(playerId);
+      demandersByResource[resource] = demanders;
     }
   }
 
@@ -40,11 +44,24 @@ function computeRollProduction(
       .map(([resource]) => resource),
   );
 
+  // Sole-entitled-player exception: when only one distinct player demands a short
+  // resource, the "no one gets it" rule doesn't apply — that player still receives
+  // whatever the bank has left of it (not their full demand, since by definition the
+  // bank can't cover that).
+  const soleEntitledResources = new Set(
+    [...shortResources].filter((resource) => (demandersByResource[resource]?.size ?? 0) === 1),
+  );
+
   const result: Record<PlayerId, Partial<Record<ResourceType, number>>> = {};
   for (const [playerId, playerDemand] of Object.entries(demand)) {
     const filtered: Partial<Record<ResourceType, number>> = {};
     for (const [resource, amount] of Object.entries(playerDemand) as [ResourceType, number][]) {
-      if (!shortResources.has(resource)) filtered[resource] = amount;
+      if (!shortResources.has(resource)) {
+        filtered[resource] = amount;
+      } else if (soleEntitledResources.has(resource)) {
+        const remaining = state.bank.resources[resource];
+        if (remaining > 0) filtered[resource] = remaining;
+      }
     }
     result[playerId] = filtered;
   }

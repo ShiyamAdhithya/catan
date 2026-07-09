@@ -11,7 +11,8 @@ export type RuleViolation =
   | { type: 'DevCardNotOwned' }
   | { type: 'DevCardBoughtThisTurn' }
   | { type: 'NoCardsToDraw' }
-  | { type: 'InvalidDiscardAmount'; required: number; provided: number };
+  | { type: 'InvalidDiscardAmount'; required: number; provided: number }
+  | { type: 'UnknownCommand'; commandType: string };
 
 export type Result<T> = { ok: true; value: T } | { ok: false; error: RuleViolation };
 

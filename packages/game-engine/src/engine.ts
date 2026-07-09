@@ -16,7 +16,7 @@ import type {
   TradeWithBankCommand,
 } from './commands.js';
 import type { Event } from './events.js';
-import { ok, type Result } from './result.js';
+import { err, ok, type Result } from './result.js';
 import { addResources, advanceAfterSetupRoad, subtractResources } from './helpers.js';
 import { recalculateLongestRoad } from './rules/longestRoad.js';
 import { recalculateLargestArmy } from './rules/largestArmy.js';
@@ -354,7 +354,7 @@ export function applyCommand(
 ): Result<{ state: GameState; events: Event[] }> {
   const handler = registry[command.type] as CommandHandler<Command> | undefined;
   if (!handler) {
-    throw new Error(`No handler registered for command type: ${command.type}`);
+    return err({ type: 'UnknownCommand', commandType: command.type });
   }
   const validation = handler.validate(state, command);
   if (!validation.ok) return validation;

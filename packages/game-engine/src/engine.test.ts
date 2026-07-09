@@ -51,6 +51,20 @@ describe('applyCommand dispatch', () => {
       expect(result.value.state).toBe(state); // no events, no change
     }
   });
+
+  it('returns an UnknownCommand Result instead of throwing for a command type with no registered handler', () => {
+    // `applyCommand` is the public entry point that @catan/networking will eventually feed
+    // with deserialized data from peers, so a malformed/corrupted `type` field must fail
+    // gracefully as a Result rather than crash the process. 'Pong' is deliberately never
+    // registered by any fixture in this file. Cast through `as unknown as Command` the same
+    // way the 'Ping' fixtures above bypass the closed Command union at compile time.
+    const state = baseState();
+    const result = applyCommand(state, { type: 'Pong', playerId: 'p1' } as never);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toEqual({ type: 'UnknownCommand', commandType: 'Pong' });
+    }
+  });
 });
 
 describe('registerHandler type safety', () => {
